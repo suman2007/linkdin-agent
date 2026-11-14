@@ -1,0 +1,9 @@
+.profile/
+seen.db
+.env
+__pycache__/
+.venv/
+.pytest_cache/
+.setup_done
+reports/
+choices.yaml

@@ -1,0 +1,56 @@
+interval_minutes: 30        # time between scans (random jitter of +-20% is added)
+max_likes_per_day: 20
+max_post_age_days: 10       # default; the answer given in `setup` overrides it
+hashtags: []                # extra pages for the KEYWORD rule, e.g. [LTE, 4G]
+searches: []                # extra LinkedIn post searches for the KEYWORD rule, e.g. ["LTE handover"]
+connections_per_scan: 15    # connections whose own posts are checked each scan (rotates through all of them)
+connection_scroll_rounds: 1 # scroll steps on each connection's page
+scroll_rounds: 12           # scroll steps per page (about 5 posts each); more = more posts, more LinkedIn activity
+model: nvidia/nemotron-3.5-bolt-e4b   # claude-* ids use Anthropic; others use NVIDIA
+keywords:                   # used by the keyword rule; setup can add extra ones
+  # core LTE/4G terms
+  - "LTE"
+  - "4G"
+  - "4G LTE"
+  - "LTE-Advanced"
+  - "VoLTE"
+  - "E-UTRAN"
+ 
+  # network nodes (RAN + EPC + IMS-core)
+  - "EPC"
+  - "Evolved Packet Core"
+  - "MME"
+  - "SGW"
+  - "S-GW"
+  - "PGW"
+  - "P-GW"
+  - "PCRF"
+  - "HSS"
+  # interfaces
+  - "S1 interface"
+  - "X2 interface"
+  - "S1AP"
+  - "X2AP"
+  - "S1-MME"
+  - "S1-U"
+  - "S11 interface"
+  - "S5/S8"
+  - "Uu interface"
+  # radio / features
+  - "Carrier Aggregation"
+  - "CSFB"
+  - "eMBMS"
+  - "SC-FDMA"
+  - "PDCCH"
+  - "PDSCH"
+  - "PUSCH"
+  - "PUCCH"
+  - "PRACH"
+  - "RSRP"
+  - "RSRQ"
+  - "eICIC"
+  - "CoMP"
+  # RAN hardware
+  - "BBU"
+  - "RRU"
+  - "CPRI"
