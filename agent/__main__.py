@@ -1,6 +1,7 @@
-"""CLI: python -m agent setup | login | run [--once] [--notify-only] [--show] [--open]"""
+"""CLI: python -m agent setup | login | run [--once] [--notify-only] [--show] [--open] | jobs | applied <ids>"""
 import argparse
 import random
+import re
 import sys
 import time
 from pathlib import Path
@@ -9,7 +10,7 @@ import yaml
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 
-from . import actions, browser, choices, matcher, report, scraper
+from . import actions, browser, choices, jobs, jobs_report, matcher, report, scraper
 from .store import Store
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -149,6 +150,60 @@ def run_cycle(page, cfg, store, pattern, notify_only, rows=None) -> None:
             rows.append(_row(post, "skipped (by you)", kws, reason))
 
 
+def _ensure_logged_in(page) -> bool:
+    """True if the saved session works, or the credentials in .env sign in again."""
+    if browser.is_logged_in(page):
+        return True
+    creds = browser.credentials()
+    if creds:
+        print("Session expired; signing in with saved credentials ...")
+    if creds and browser.auto_login(page, *creds):
+        return True
+    print("Not logged in (2FA/CAPTCHA may be required). Run: python -m agent login")
+    return False
+
+
+def cmd_jobs(show: bool = False, open_report: bool = False) -> int:
+    """Find recent jobs matching jobs.yaml, skip the ones you applied to, rank them, write reports/jobs.html."""
+    load_dotenv(ROOT / ".env")
+    prefs = jobs.load_prefs()
+    model = load_config()["model"]
+    store = Store()
+    print(f"Skills: {', '.join(prefs['skills'])} | last {prefs['max_age_days']} days | "
+          f"preferred: {', '.join(prefs['preferred_locations'] + (['remote'] if prefs['include_remote'] else []))}, "
+          f"then {prefs['fallback_location']}")
+    with sync_playwright() as p:
+        ctx = browser.launch(p, headless=not show)
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        try:
+            if not _ensure_logged_in(page):
+                return 1
+            found = jobs.run(page, prefs, store, model)
+        finally:
+            ctx.close()
+    path = jobs_report.write(found, prefs, ROOT / "reports" / "jobs.html", open_report)
+    top = [j for j in found if j.decision == "recommended"]
+    print(f"\n{len(top)} recommended of {len(found)} jobs. Report: {path}")
+    for j in top[:10]:
+        print(f"  [{j.score:>3}] tier {j.tier} | {j.title[:55]} | {j.company[:25]} | {j.location[:25]}")
+    return 0
+
+
+def cmd_applied(refs: list[str]) -> int:
+    """Record jobs you applied to outside LinkedIn so they never show up again."""
+    ids = []
+    for ref in refs:
+        m = re.search(r"(\d{6,})", ref)
+        if m:
+            ids.append(m.group(1))
+        else:
+            print(f"  not a job id or LinkedIn job link: {ref!r}")
+    if ids:
+        Store().mark_jobs_applied(ids)
+        print(f"Recorded {len(ids)} job(s) as applied; they will be excluded from future reports.")
+    return 0 if ids else 1
+
+
 def cmd_run(once: bool, notify_only: bool, show: bool = False, open_report: bool = False) -> int:
     load_dotenv(ROOT / ".env")
     chosen = choices.load()
@@ -171,14 +226,9 @@ def cmd_run(once: bool, notify_only: bool, show: bool = False, open_report: bool
             show = True
         ctx = browser.launch(p, headless=not show)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
-        if not browser.is_logged_in(page):
-            creds = browser.credentials()
-            if creds:
-                print("Session expired; signing in with saved credentials ...")
-            if not (creds and browser.auto_login(page, *creds)):
-                ctx.close()
-                print("Not logged in (2FA/CAPTCHA may be required). Run: python -m agent login")
-                return 1
+        if not _ensure_logged_in(page):
+            ctx.close()
+            return 1
         try:
             while True:
                 rows: list = []
@@ -207,6 +257,11 @@ def main() -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("login")
     sub.add_parser("setup", help="choose companies / keywords / connections to look for")
+    j = sub.add_parser("jobs", help="find recent jobs that match jobs.yaml and write reports/jobs.html")
+    j.add_argument("--show", action="store_true", help="show the browser window")
+    j.add_argument("--open", action="store_true", help="open the HTML job report when done")
+    a = sub.add_parser("applied", help="record jobs you applied to elsewhere (job ids or LinkedIn job links)")
+    a.add_argument("refs", nargs="+")
     r = sub.add_parser("run")
     r.add_argument("--once", action="store_true")
     r.add_argument("--notify-only", action="store_true")
@@ -217,6 +272,10 @@ def main() -> int:
         return cmd_login()
     if args.cmd == "setup":
         return cmd_setup()
+    if args.cmd == "jobs":
+        return cmd_jobs(args.show, args.open)
+    if args.cmd == "applied":
+        return cmd_applied(args.refs)
     return cmd_run(args.once, args.notify_only, args.show, args.open)
 
 

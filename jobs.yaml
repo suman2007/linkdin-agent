@@ -1,0 +1,36 @@
+# Job search preferences for:  python -m agent jobs   (or run.bat jobs)
+# Edit freely; nothing here is hard-coded in the program.
+
+skills:                       # scored by the AI and matched in each posting (singular form also matches plural)
+  - "C"
+  - "C++"
+  - "Python"
+  - "Java"
+  - "LTE"
+  - "4G"
+  - "Microservice"
+  - "Distributed System"
+
+search_terms:                 # words sent to LinkedIn's search, joined with OR (leave empty to derive from skills)
+  - "C programming"
+  - "C++"
+  - "Python"
+  - "Java"
+  - "LTE"
+  - "4G"
+  - "microservices"
+  - "distributed systems"
+
+preferred_locations:          # 1st preference (together with remote)
+  - "Kolkata"
+include_remote: true          # remote jobs count as 1st preference
+fallback_location: "India"    # 2nd preference: anywhere in this country
+
+max_age_days: 15              # ignore jobs posted longer ago than this
+min_years: 3                  # "experienced": roles asking fewer years than this are dropped
+exclude_title_words: [intern, trainee, fresher, junior, graduate]
+
+pages_per_search: 2           # 25 jobs per page, per search
+max_jobs_to_score: 60         # new jobs opened and AI-scored per run (cached jobs are free)
+min_score: 60                 # score (0-100) needed to be recommended. A job is capped at 40 + 15 per skill really
+                              # named in the posting, so 60 means at least 2 of your skills appear in it

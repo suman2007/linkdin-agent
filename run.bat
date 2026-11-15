@@ -6,6 +6,8 @@ rem   run.bat once       single scan, then exit
 rem   run.bat watch      dry run with a visible browser + HTML scan report
 rem   run.bat login      only (re)login to LinkedIn
 rem   run.bat setup      choose companies / keywords / connections to look for
+rem   run.bat jobs       find recent jobs (see jobs.yaml), skip ones you applied to, write a report
+rem   run.bat applied <job link or id> ...   record jobs you applied to outside LinkedIn
 cd /d "%~dp0"
 chcp 65001 >nul
 set PYTHONUTF8=1
@@ -26,6 +28,7 @@ if not exist ".setup_done" (
 
 if /i "%~1"=="login" goto :login
 if /i "%~1"=="setup" goto :setup
+if /i "%~1"=="applied" goto :applied
 
 rem --- API key check (key lives in .env, which is gitignored)
 if not exist ".env" (
@@ -38,6 +41,7 @@ if errorlevel 1 (
   pause & exit /b 1
 )
 
+if /i "%~1"=="jobs" goto :jobs
 set ARGS=
 if /i "%~1"=="dry"  set ARGS=--once --notify-only
 if /i "%~1"=="once" set ARGS=--once
@@ -59,6 +63,14 @@ goto :end
 
 :setup
 python -m agent setup
+goto :end
+
+:applied
+python -m agent applied %2 %3 %4 %5 %6 %7 %8 %9
+goto :end
+
+:jobs
+python -m agent jobs --open
 
 :end
 pause

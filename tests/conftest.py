@@ -1,4 +1,8 @@
 """Mock LinkedIn that mirrors the REAL feed markup (verified live, Nov 2026)."""
+import os
+
+os.environ.setdefault("AGENT_FAST", "1")   # skip the human-like pauses in new code (agent/pacing.py)
+
 import pytest
 from playwright.sync_api import sync_playwright
 

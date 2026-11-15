@@ -54,6 +54,23 @@ def _nvidia_client():
     return OpenAI(base_url=NVIDIA_BASE_URL, api_key=key)
 
 
+def complete(system: str, user: str, model: str, client=None, max_tokens: int = 400) -> str:
+    """One chat completion, routed like llm_match: `claude*` -> Anthropic, anything else -> NVIDIA."""
+    if model.startswith("claude"):
+        client = client or anthropic.Anthropic()
+        resp = client.messages.create(model=model, max_tokens=max_tokens, system=system,
+                                      output_config={"effort": "low"},
+                                      messages=[{"role": "user", "content": user}])
+        if resp.stop_reason == "refusal":
+            return ""
+        return "".join(b.text for b in resp.content if b.type == "text")
+    client = client or _nvidia_client()
+    resp = client.chat.completions.create(
+        model=model, max_tokens=max_tokens, temperature=0,
+        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}])
+    return resp.choices[0].message.content or ""
+
+
 def llm_match(text: str, model: str, client=None) -> tuple[bool, str]:
     """Claude models go to Anthropic; any other model id goes to NVIDIA's OpenAI-compatible API."""
     if model.startswith("claude"):
