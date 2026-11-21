@@ -1,4 +1,4 @@
-# LinkedIn Agent: post finder and job finder
+# Linkedin Agent: post finder and job finder
 
 Two tools in one project, both driven by your own saved LinkedIn session and an AI model of your choice
 (default: NVIDIA `nvidia/nemotron-3.5-bolt-e4b`, free; or any `claude-*` model).
