@@ -57,7 +57,8 @@ def cmd_setup() -> int:
             ctx.close()
     choices.save(chosen)
     cleared = Store().clear_stale()      # rules changed: posts judged under the old rules get re-judged
-    print(f"\nSaved to choices.yaml. Looking for: {choices.summary(chosen)} (last {chosen['max_post_age_days']} days).")
+    print(f"\nSaved to choices.yaml. Doing: {choices.summary(chosen)}"
+          + (f" (posts from the last {chosen['max_post_age_days']} days)." if choices.posts_enabled(chosen) else "."))
     if cleared:
         print(f"({cleared} earlier 'irrelevant/old' decisions cleared so they are re-checked.)")
     return 0
@@ -163,29 +164,35 @@ def _ensure_logged_in(page) -> bool:
     return False
 
 
+def do_jobs(page, store, open_report: bool = False) -> None:
+    """Search jobs with the page's session, rank them and write reports/jobs.html.
+    Uses jobs.yaml, overlaid with the skills / places chosen in setup."""
+    prefs = choices.apply_jobs(jobs.load_prefs(), choices.load())
+    model = load_config()["model"]
+    print(f"Jobs: skills {', '.join(prefs['skills'])} | last {prefs['max_age_days']} days | "
+          f"preferred: {', '.join(prefs['preferred_locations'] + (['remote'] if prefs['include_remote'] else []))}, "
+          f"then {prefs['fallback_location']}")
+    found = jobs.run(page, prefs, store, model)
+    path = jobs_report.write(found, prefs, ROOT / "reports" / "jobs.html", open_report)
+    top = [j for j in found if j.decision == "recommended"]
+    print(f"\n{len(top)} recommended of {len(found)} jobs. Report: {path}")
+    for j in top[:10]:
+        print(f"  [{j.score:>3}] tier {j.tier} | {j.title[:55]} | {j.company[:25]} | {j.location[:25]}")
+
+
 def cmd_jobs(show: bool = False, open_report: bool = False) -> int:
     """Find recent jobs matching jobs.yaml, skip the ones you applied to, rank them, write reports/jobs.html."""
     load_dotenv(ROOT / ".env")
-    prefs = jobs.load_prefs()
-    model = load_config()["model"]
     store = Store()
-    print(f"Skills: {', '.join(prefs['skills'])} | last {prefs['max_age_days']} days | "
-          f"preferred: {', '.join(prefs['preferred_locations'] + (['remote'] if prefs['include_remote'] else []))}, "
-          f"then {prefs['fallback_location']}")
     with sync_playwright() as p:
         ctx = browser.launch(p, headless=not show)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         try:
             if not _ensure_logged_in(page):
                 return 1
-            found = jobs.run(page, prefs, store, model)
+            do_jobs(page, store, open_report)
         finally:
             ctx.close()
-    path = jobs_report.write(found, prefs, ROOT / "reports" / "jobs.html", open_report)
-    top = [j for j in found if j.decision == "recommended"]
-    print(f"\n{len(top)} recommended of {len(found)} jobs. Report: {path}")
-    for j in top[:10]:
-        print(f"  [{j.score:>3}] tier {j.tier} | {j.title[:55]} | {j.company[:25]} | {j.location[:25]}")
     return 0
 
 
@@ -207,9 +214,9 @@ def cmd_applied(refs: list[str]) -> int:
 def cmd_run(once: bool, notify_only: bool, show: bool = False, open_report: bool = False) -> int:
     load_dotenv(ROOT / ".env")
     chosen = choices.load()
-    if chosen is None:
+    if chosen is None or (choices.is_outdated() and sys.stdin.isatty()):
         if sys.stdin.isatty():
-            print("First run: choose what to look for (redo anytime with: run.bat setup).")
+            print("Choose what to do: jobs, feed, company posts (redo anytime with: run.bat setup).")
             cmd_setup()
             chosen = choices.load() or dict(choices.DEFAULTS)
         else:
@@ -217,11 +224,12 @@ def cmd_run(once: bool, notify_only: bool, show: bool = False, open_report: bool
                   "Run: python -m agent setup")
             chosen = dict(choices.DEFAULTS)
     cfg = choices.apply(load_config(), chosen)
-    print(f"Looking for: {choices.summary(chosen)} | last {cfg['max_post_age_days']} days")
+    want_jobs, want_posts = bool(chosen.get("jobs")), choices.posts_enabled(chosen)
+    print(f"Doing: {choices.summary(chosen)}" + (f" | posts from the last {cfg['max_post_age_days']} days" if want_posts else ""))
     pattern = matcher.build_pattern(cfg["keywords"])
     store = Store()
     with sync_playwright() as p:
-        if cfg.get("companies") and not show:
+        if want_posts and cfg.get("companies") and not show:
             print("Company pages are only served to a visible browser window, so one will open.")
             show = True
         ctx = browser.launch(p, headless=not show)
@@ -230,14 +238,19 @@ def cmd_run(once: bool, notify_only: bool, show: bool = False, open_report: bool
             ctx.close()
             return 1
         try:
+            last_jobs = 0.0
             while True:
-                rows: list = []
-                try:
-                    run_cycle(page, cfg, store, pattern, notify_only, rows)
-                finally:
-                    path = report.write(rows, cfg, notify_only, ROOT / "reports" / "latest.html", open_report)
-                    print(f"Report: {path}")
-                if once:
+                if want_jobs and time.time() - last_jobs >= cfg.get("jobs_every_hours", 6) * 3600:
+                    do_jobs(page, store, open_report)       # cached, so a repeat costs little
+                    last_jobs = time.time()
+                if want_posts:
+                    rows: list = []
+                    try:
+                        run_cycle(page, cfg, store, pattern, notify_only, rows)
+                    finally:
+                        path = report.write(rows, cfg, notify_only, ROOT / "reports" / "latest.html", open_report)
+                        print(f"Report: {path}")
+                if once or not want_posts:                  # jobs-only runs once; use run.bat to repeat
                     break
                 wait = cfg["interval_minutes"] * 60 * random.uniform(0.8, 1.2)
                 print(f"Next scan in {wait / 60:.0f} min (Ctrl+C to stop).")

@@ -12,7 +12,8 @@ from pathlib import Path
 import yaml
 
 CHOICES_PATH = Path(__file__).resolve().parent.parent / "choices.yaml"
-DEFAULTS = {"companies": [], "keywords": True, "connections": False,
+DEFAULTS = {"jobs": False, "job_skills": [], "job_locations": [],
+            "companies": [], "keywords": True, "connections": False,
             "extra_keywords": [], "max_post_age_days": 10}
 
 
@@ -22,6 +23,13 @@ def load(path: Path = CHOICES_PATH) -> dict | None:
         return None
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return {**DEFAULTS, **data}
+
+
+def is_outdated(path: Path = CHOICES_PATH) -> bool:
+    """True if a saved file predates the jobs question, so the user should be asked again."""
+    if not path.exists():
+        return False
+    return "jobs" not in (yaml.safe_load(path.read_text(encoding="utf-8")) or {})
 
 
 def save(choices: dict, path: Path = CHOICES_PATH) -> None:
@@ -68,8 +76,14 @@ def _pick_company(item, ask, say, resolver):
 
 def run_setup(ask=input, say=print, resolver=None) -> dict:
     """Interactive questions. `resolver(name) -> [(slug, display_name), ...]` looks up company names."""
-    say("\nChoose what the agent should look for. A post is kept if it matches ANY rule you enable.\n")
+    say("\nChoose what the agent should do. Enable one or more of: jobs, company posts, feed keywords, connections.\n"
+        "A post is kept if it matches ANY post rule you enable.\n")
     for _ in range(3):
+        jobs = _yes(ask("0) Find recent jobs for your skills (report in reports/jobs.html)? [Y/n]: "), True)
+        job_skills, job_locations = [], []
+        if jobs:
+            job_skills = _split(ask("   Your skills (comma-separated, blank = use jobs.yaml): "))
+            job_locations = _split(ask("   Preferred places, e.g. Kolkata (blank = use jobs.yaml; remote is included): "))
         companies = []
         raw = ask("1) Posts from specific companies (any topic). Names or LinkedIn URLs, comma-separated,\n"
                   "   blank = none: ")
@@ -81,16 +95,34 @@ def run_setup(ask=input, say=print, resolver=None) -> dict:
         keywords = _yes(ask("2) Posts about your keywords (LTE/4G and node names; the AI confirms the topic)? [Y/n]: "), True)
         extra = _split(ask("   Extra keywords to add (comma-separated, blank = none): ")) if keywords else []
         connections = _yes(ask("3) ALL posts by your 1st-degree connections, with no keyword needed? [y/N]: "), False)
-        if companies or keywords or connections:
+        if jobs or companies or keywords or connections:
             break
-        say("\nNothing is enabled, so there would be nothing to find. Please enable at least one rule.\n")
+        say("\nNothing is enabled, so there would be nothing to find. Please enable at least one option.\n")
     else:
         say("Using the default: keywords only.")
         keywords = True
-    age = ask("4) Only posts from the last N days [10]: ").strip()
-    age = int(age) if age.isdigit() and 1 <= int(age) <= 365 else 10
-    return {"companies": companies, "keywords": keywords, "connections": connections,
+    age = 10
+    if companies or keywords or connections:
+        raw = ask("4) Only posts from the last N days [10]: ").strip()
+        age = int(raw) if raw.isdigit() and 1 <= int(raw) <= 365 else 10
+    return {"jobs": jobs, "job_skills": job_skills, "job_locations": job_locations,
+            "companies": companies, "keywords": keywords, "connections": connections,
             "extra_keywords": extra, "max_post_age_days": age}
+
+
+def posts_enabled(choices: dict) -> bool:
+    return bool(choices["companies"] or choices["keywords"] or choices["connections"])
+
+
+def apply_jobs(prefs: dict, choices: dict | None) -> dict:
+    """Overlay the user's job skills / places (if given) on the jobs.yaml preferences."""
+    prefs = dict(prefs)
+    if choices and choices.get("job_skills"):
+        prefs["skills"] = choices["job_skills"]
+        prefs["search_terms"] = []            # derive the search words from the new skills
+    if choices and choices.get("job_locations"):
+        prefs["preferred_locations"] = choices["job_locations"]
+    return prefs
 
 
 def apply(cfg: dict, choices: dict) -> dict:
@@ -118,4 +150,7 @@ def summary(choices: dict) -> str:
         parts.append("all posts by your connections")
     if choices["keywords"]:
         parts.append("keywords" + (f" (+{len(choices['extra_keywords'])} extra)" if choices["extra_keywords"] else ""))
-    return " OR ".join(parts) or "nothing"
+    posts = " OR ".join(parts)
+    if choices.get("jobs"):
+        return f"jobs; posts: {posts}" if posts else "jobs"
+    return posts or "nothing"

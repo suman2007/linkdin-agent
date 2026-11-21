@@ -23,6 +23,14 @@ python -m agent login       # sign in once in the window that opens (2FA is fine
 ```
 `run.bat` does the install steps for you on its first run.
 
+**Linux / macOS:** use `./run.sh` with the same modes as `run.bat` (`./run.sh setup`, `./run.sh jobs`, `./run.sh watch`
+...). Its first run creates `.venv`, installs the packages and Chromium. Do `chmod +x run.sh` once if needed.
+- Needs Python 3.11+ (Debian/Ubuntu: `sudo apt install python3-venv`).
+- If Chromium will not start: `sudo .venv/bin/python -m playwright install-deps chromium`.
+- On a server with no screen, company pages and `login` still need a visible window:
+  run `xvfb-run -a ./run.sh watch`, or log in once on a desktop machine and copy `.profile/`.
+- The Python code itself is platform independent; only the launcher differs.
+
 ## Commands
 Use `run.bat <mode>` (double-click `run.bat` for the normal mode) or `python -m agent <command>`.
 
@@ -41,9 +49,11 @@ Use `run.bat <mode>` (double-click `run.bat` for the normal mode) or `python -m 
 "Another agent command (process N) is using the browser profile". Wait for the first to finish.
 
 ## Post agent
-Run `run.bat setup` and answer four questions (companies, keywords, connections, days back). Answers are
-saved to `choices.yaml`; edit that file or run setup again to change them. A post is kept if it matches
-**any** rule you turn on (OR):
+`run.bat` asks what you want on the first run (redo with `run.bat setup`): **jobs** (with your skills and
+places), **company posts**, **feed keywords**, **connections' posts**, and how many days back. Answers are
+saved to `choices.yaml`; edit that file or run setup again. Choose jobs only and `run.bat` writes
+`reports/jobs.html` and exits; choose any post rule and it also scans every `interval_minutes` (jobs are
+refreshed every `jobs_every_hours`, default 6). A post is kept if it matches **any** post rule you turn on (OR):
 
 | Rule | Meaning |
 |---|---|
@@ -58,7 +68,8 @@ hit, the AI verdict and the decision. Posts older than your "days back" are igno
 `max_likes_per_day` (20), `scroll_rounds`, `connections_per_scan`, `connection_scroll_rounds`, `model`.
 
 ## Job finder
-Edit `jobs.yaml` (skills, places, limits), then run `run.bat jobs`. It opens `reports/jobs.html`.
+Turn jobs on in `run.bat setup` (skills and places you type there override `jobs.yaml`), or edit `jobs.yaml`
+and run `run.bat jobs`. It opens `reports/jobs.html`.
 
 | `jobs.yaml` key | Meaning |
 |---|---|

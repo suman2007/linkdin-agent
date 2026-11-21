@@ -1,6 +1,8 @@
 """Integration tests: real Chromium against a mocked LinkedIn (no network)."""
 from urllib.parse import quote
 
+import pytest
+
 from conftest import COMPANY_NAME, COMPANY_SLUG, OTHER_SLUGS, REGIONAL_NAME, REGIONAL_SLUG, URN_A, URN_B, URN_C
 
 from agent import __main__ as cli
@@ -501,3 +503,62 @@ def test_no_profile_visits_unless_configured(browser_ctx, tmp_path, monkeypatch)
 def test_report_labels_connection_pages():
     from agent import report
     assert report.source_label("https://www.linkedin.com/in/jane-doe-123/recent-activity/all/") == "Connection jane-doe-123"
+
+
+class _FlakyPage:
+    """goto fails like Playwright does while LinkedIn is still redirecting, then succeeds."""
+
+    def __init__(self, fail_times):
+        from playwright.sync_api import Error
+        self.fail, self.calls, self.url, self._err = fail_times, 0, "https://www.linkedin.com/feed/", Error
+
+    def goto(self, url, **kw):
+        self.calls += 1
+        if self.calls <= self.fail:
+            raise self._err('Page.goto: Navigation to "https://www.linkedin.com/feed/" is interrupted by another navigation to "https://www.linkedin.com/feed/"')
+
+    def wait_for_load_state(self, *a, **kw):
+        pass
+
+    def wait_for_timeout(self, ms):
+        pass
+
+
+def test_is_logged_in_survives_a_redirect_in_progress():
+    page = _FlakyPage(fail_times=1)
+    assert browser.is_logged_in(page) is True and page.calls == 2          # retried once, then fine
+
+
+def test_is_logged_in_gives_up_after_three_interruptions_but_other_errors_propagate():
+    from playwright.sync_api import Error
+    with pytest.raises(Error):
+        browser.is_logged_in(_FlakyPage(fail_times=5))
+    page = _FlakyPage(fail_times=0)
+    page.goto = lambda *a, **k: (_ for _ in ()).throw(Error("net::ERR_CONNECTION_RESET"))
+    with pytest.raises(Error):
+        browser.is_logged_in(page)
+
+
+def test_profile_lock_blocks_a_second_command_and_ignores_stale_locks(tmp_path, monkeypatch):
+    import os
+    lock = tmp_path / "agent.lock"
+    monkeypatch.setattr(browser, "_pid_alive", lambda pid: pid == 4242)
+    lock.write_text("4242")                                                  # another live command holds it
+    with pytest.raises(SystemExit) as e:
+        browser.acquire_lock(lock)
+    assert "4242" in str(e.value)
+    lock.write_text("999999")                                                # holder is gone: stale
+    browser.acquire_lock(lock)
+    assert lock.read_text() == str(os.getpid())
+    browser.release_lock(lock)
+    assert not lock.exists()
+    lock.write_text("not a number")                                          # garbage is treated as stale
+    browser.acquire_lock(lock)
+    browser.release_lock(lock)
+
+
+def test_release_lock_only_removes_its_own(tmp_path):
+    lock = tmp_path / "agent.lock"
+    lock.write_text("1")                                                     # someone else's
+    browser.release_lock(lock)
+    assert lock.exists()
